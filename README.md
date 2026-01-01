@@ -265,7 +265,33 @@ connection modify <name>   # Edit connection
 
 ## Troubleshooting
 
-### "nmcli not found"
+### Installation Errors
+
+If you encounter errors during `bash install.sh`, especially:
+- APT dependency conflicts (`libc6`, `network-manager` mismatches)
+- SSL certificate verification failures
+- Repository access issues
+
+**See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for detailed solutions by distribution.**
+
+Quick fix for most systems:
+```bash
+# Clear package caches and retry
+sudo apt-get clean && sudo apt-get update
+bash install.sh
+```
+
+Or skip system packages entirely (safest approach):
+```bash
+git clone https://github.com/alphingj/nmgui.git
+cd nmgui
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+nmgui
+```
+
+### Runtime Issues
 ```bash
 # Debian/Ubuntu
 sudo apt update && sudo apt install network-manager

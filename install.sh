@@ -22,13 +22,63 @@ install_package() {
     local pkg=$1
     local mgr=$2
     case "$mgr" in
-        apt) sudo apt-get update -qq && sudo apt-get install -y "$pkg" ;;
+        apt) sudo apt-get install -y "$pkg" ;;
         dnf) sudo dnf install -y "$pkg" ;;
         yum) sudo yum install -y "$pkg" ;;
         pacman) sudo pacman -S --noconfirm "$pkg" ;;
         zypper) sudo zypper install -y "$pkg" ;;
         apk) sudo apk add "$pkg" ;;
     esac
+}
+
+# Handle package manager errors and provide helpful suggestions
+handle_pkg_error() {
+    local mgr=$1
+    local pkg=$2
+    echo ""
+    echo "❌ Failed to install/upgrade: $pkg"
+    echo ""
+    echo "This may be due to:"
+    echo "  • Conflicting package dependencies"
+    echo "  • Repository issues or SSL certificate problems"
+    echo "  • System package conflicts"
+    echo ""
+    echo "Suggested fixes:"
+    case "$mgr" in
+        apt)
+            echo "  1. Clear apt cache: sudo apt-get clean"
+            echo "  2. Update package lists: sudo apt-get update --allow-insecure-repositories"
+            echo "  3. Fix broken packages: sudo apt --fix-broken install"
+            echo "  4. Try again: sudo apt-get install -y $pkg"
+            echo ""
+            echo "For certificate issues, add -o Apt::Get::AllowUnauthenticated=true:"
+            echo "  sudo apt-get install -o Apt::Get::AllowUnauthenticated=true -y $pkg"
+            echo ""
+            echo "If all else fails, nmgui will still work without the latest NetworkManager!"
+            ;;
+        dnf)
+            echo "  1. Clear dnf cache: sudo dnf clean all"
+            echo "  2. Try again: sudo dnf install -y $pkg"
+            echo "  3. Use --skip-broken: sudo dnf install --skip-broken -y $pkg"
+            ;;
+        yum)
+            echo "  1. Clear yum cache: sudo yum clean all"
+            echo "  2. Try again: sudo yum install -y $pkg"
+            ;;
+        pacman)
+            echo "  1. Sync database: sudo pacman -Sy"
+            echo "  2. Try again: sudo pacman -S --noconfirm $pkg"
+            ;;
+        zypper)
+            echo "  1. Refresh repositories: sudo zypper refresh"
+            echo "  2. Try again: sudo zypper install -y $pkg"
+            ;;
+        apk)
+            echo "  1. Update package list: sudo apk update"
+            echo "  2. Try again: sudo apk add $pkg"
+            ;;
+    esac
+    echo ""
 }
 
 # Check Python
@@ -62,39 +112,51 @@ python3 -c "import tkinter" 2>/dev/null && echo "✓ tkinter" || echo "⚠ tkint
 # Install/upgrade NetworkManager
 echo "📦 NetworkManager..."
 if ! command -v nmcli &> /dev/null; then
+    echo "  Installing NetworkManager (first time)..."
     case "$PKG_MGR" in
-        apt) sudo apt-get update -qq && sudo apt-get install -y network-manager ;;
-        dnf) sudo dnf install -y NetworkManager ;;
-        yum) sudo yum install -y NetworkManager ;;
-        pacman) sudo pacman -S --noconfirm networkmanager ;;
-        zypper) sudo zypper install -y NetworkManager ;;
-        apk) sudo apk add networkmanager ;;
+        apt) 
+            if ! sudo apt-get update -qq 2>/dev/null || ! sudo apt-get install -y network-manager 2>/dev/null; then
+                handle_pkg_error "$PKG_MGR" "network-manager"
+                echo "⚠ Skipping NetworkManager install (may already be present)"
+            fi
+            ;;
+        dnf) sudo dnf install -y NetworkManager 2>/dev/null || handle_pkg_error "$PKG_MGR" "NetworkManager" ;;
+        yum) sudo yum install -y NetworkManager 2>/dev/null || handle_pkg_error "$PKG_MGR" "NetworkManager" ;;
+        pacman) sudo pacman -S --noconfirm networkmanager 2>/dev/null || handle_pkg_error "$PKG_MGR" "networkmanager" ;;
+        zypper) sudo zypper install -y NetworkManager 2>/dev/null || handle_pkg_error "$PKG_MGR" "NetworkManager" ;;
+        apk) sudo apk add networkmanager 2>/dev/null || handle_pkg_error "$PKG_MGR" "networkmanager" ;;
     esac
 else
+    echo "  NetworkManager already installed, attempting upgrade..."
     case "$PKG_MGR" in
-        apt) sudo apt-get update -qq && sudo apt-get upgrade -y network-manager ;;
-        dnf) sudo dnf upgrade -y NetworkManager ;;
-        yum) sudo yum upgrade -y NetworkManager ;;
-        pacman) sudo pacman -S --noconfirm networkmanager ;;
-        zypper) sudo zypper update -y NetworkManager ;;
-        apk) sudo apk upgrade networkmanager ;;
+        apt) 
+            if ! sudo apt-get update -qq 2>/dev/null || ! sudo apt-get upgrade -y network-manager 2>/dev/null; then
+                echo "⚠ Could not upgrade NetworkManager (likely due to dependencies)"
+                echo "   This is OK - existing version will work fine with nmgui"
+            fi
+            ;;
+        dnf) sudo dnf upgrade -y NetworkManager 2>/dev/null || echo "⚠ Could not upgrade NetworkManager (OK for nmgui)" ;;
+        yum) sudo yum upgrade -y NetworkManager 2>/dev/null || echo "⚠ Could not upgrade NetworkManager (OK for nmgui)" ;;
+        pacman) sudo pacman -S --noconfirm networkmanager 2>/dev/null || echo "⚠ Could not upgrade NetworkManager (OK for nmgui)" ;;
+        zypper) sudo zypper update -y NetworkManager 2>/dev/null || echo "⚠ Could not upgrade NetworkManager (OK for nmgui)" ;;
+        apk) sudo apk upgrade networkmanager 2>/dev/null || echo "⚠ Could not upgrade NetworkManager (OK for nmgui)" ;;
     esac
 fi
-command -v nmcli &> /dev/null && echo "✓ $(nmcli --version | head -1)" || echo "⚠ nmcli not found"
+command -v nmcli &> /dev/null && echo "✓ $(nmcli --version | head -1)" || echo "⚠ nmcli not found (install manually: https://github.com/NetworkManager/NetworkManager)"
 
 # Install polkit
 echo "📦 Polkit..."
 if ! command -v pkexec &> /dev/null; then
     case "$PKG_MGR" in
-        apt) sudo apt-get install -y policykit-1 ;;
-        dnf) sudo dnf install -y polkit ;;
-        yum) sudo yum install -y polkit ;;
-        pacman) sudo pacman -S --noconfirm polkit ;;
-        zypper) sudo zypper install -y polkit ;;
-        apk) sudo apk add polkit ;;
+        apt) sudo apt-get install -y policykit-1 2>/dev/null || echo "⚠ Could not install polkit" ;;
+        dnf) sudo dnf install -y polkit 2>/dev/null || echo "⚠ Could not install polkit" ;;
+        yum) sudo yum install -y polkit 2>/dev/null || echo "⚠ Could not install polkit" ;;
+        pacman) sudo pacman -S --noconfirm polkit 2>/dev/null || echo "⚠ Could not install polkit" ;;
+        zypper) sudo zypper install -y polkit 2>/dev/null || echo "⚠ Could not install polkit" ;;
+        apk) sudo apk add polkit 2>/dev/null || echo "⚠ Could not install polkit" ;;
     esac
 fi
-command -v pkexec &> /dev/null && echo "✓ pkexec" || echo "⚠ pkexec not found"
+command -v pkexec &> /dev/null && echo "✓ pkexec" || echo "⚠ pkexec not found (install manually)"
 
 # Download nmgui
 if [ ! -f "pyproject.toml" ]; then
