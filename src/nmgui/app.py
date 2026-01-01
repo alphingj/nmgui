@@ -3,9 +3,12 @@ from __future__ import annotations
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional, Tuple
+import io
 
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
+from PIL import Image, ImageTk
+import qrcode
 
 from .models import CommandResult, Connection, Device, WifiNetwork
 from .nmcli import Nmcli
@@ -193,13 +196,107 @@ class App(tk.Tk):
         self.run_task(lambda: self.nmcli.device_connect(dev.device), self._handle_command_result)
 
     # ----- wifi tab -------------------------------------------------------
+    def _generate_wifi_qr(self, net: WifiNetwork) -> Optional[Image.Image]:
+        """Generate QR code for WiFi network with saved password"""
+        if not net.ssid:
+            return None
+        
+        # Get saved password (will prompt for su)
+        self.set_status(f"Retrieving password for {net.ssid}...")
+        password = self.nmcli.get_wifi_password(net.ssid)
+        
+        if not password:
+            messagebox.showinfo("No Password", f"No saved password found for {net.ssid}")
+            return None
+        
+        # WiFi QR format: WIFI:T:WPA;S:SSID;P:PASSWORD;;
+        security_type = "WPA"
+        if "WEP" in net.security:
+            security_type = "WEP"
+        elif "Open" in net.security or not net.security or net.security == "--":
+            security_type = "nopass"
+        
+        if security_type == "nopass":
+            qr_string = f"WIFI:S:{net.ssid};;"
+        else:
+            # Escape special characters in password
+            escaped_pwd = password.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace(":", "\\:")
+            qr_string = f"WIFI:T:{security_type};S:{net.ssid};P:{escaped_pwd};;"
+        
+        # Generate QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+        qr.add_data(qr_string)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        return img
+    
+    def _show_wifi_qr(self) -> None:
+        """Show QR code for connecting to WiFi network"""
+        net = self._selected_wifi()
+        if not net:
+            self.show_error("No selection", "Pick a network to generate QR code.")
+            return
+        
+        self.run_task(lambda: self._generate_wifi_qr(net), self._handle_qr_result)
+    
+    def _show_saved_password(self) -> None:
+        """Show saved password for selected WiFi network"""
+        net = self._selected_wifi()
+        if not net:
+            self.show_error("No selection", "Pick a network to show password.")
+            return
+        
+        self.set_status(f"Retrieving password for {net.ssid}...")
+        self.run_task(lambda: self.nmcli.get_wifi_password(net.ssid), self._handle_show_password)
+    
+    def _handle_qr_result(self, img: Optional[Image.Image], exc: Optional[Exception]) -> None:
+        """Handle QR code generation result"""
+        self.set_status("Ready")
+        if exc:
+            self.show_error("QR Code Error", str(exc))
+            return
+        
+        if not img:
+            return
+        
+        # Create popup window with QR code
+        qr_win = tk.Toplevel(self)
+        qr_win.title("WiFi QR Code - Scan with Android Device")
+        qr_win.resizable(False, False)
+        
+        # Convert PIL image to PhotoImage
+        photo = ImageTk.PhotoImage(img.resize((300, 300), Image.Resampling.LANCZOS))
+        qr_label = ttk.Label(qr_win, image=photo)
+        qr_label.image = photo  # Keep a reference
+        qr_label.pack(padx=20, pady=20)
+        
+        info_text = ttk.Label(qr_win, text="Scan this QR code with your Android device\nto connect to this WiFi network", justify=tk.CENTER)
+        info_text.pack(padx=20, pady=(0, 20))
+    
+    def _handle_show_password(self, password: Optional[str], exc: Optional[Exception]) -> None:
+        """Handle show password result"""
+        self.set_status("Ready")
+        if exc:
+            self.show_error("Password Error", str(exc))
+            return
+        
+        if not password:
+            messagebox.showinfo("No Password", "No saved password found for this network")
+            return
+        
+        messagebox.showinfo("Saved Password", f"Password: {password}", parent=self)
+
     def _build_wifi_tab(self, parent: tk.Widget) -> tk.Frame:
         frame = ttk.Frame(parent, padding=8)
         toolbar = ttk.Frame(frame)
         self.wifi_refresh_btn = ttk.Button(toolbar, text="Scan", command=self.refresh_wifi)
         self.wifi_connect_btn = ttk.Button(toolbar, text="Connect", command=self._wifi_connect)
+        self.wifi_qr_btn = ttk.Button(toolbar, text="Show QR Code", command=self._show_wifi_qr)
+        self.wifi_pwd_btn = ttk.Button(toolbar, text="Show Password", command=self._show_saved_password)
         self.wifi_refresh_btn.pack(side=tk.LEFT, padx=(0, 6))
-        self.wifi_connect_btn.pack(side=tk.LEFT)
+        self.wifi_connect_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.wifi_qr_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.wifi_pwd_btn.pack(side=tk.LEFT)
         toolbar.pack(fill=tk.X, pady=(0, 6))
 
         columns = ("in_use", "ssid", "signal", "security", "mode", "freq", "channel")

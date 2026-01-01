@@ -161,3 +161,10 @@ class Nmcli:
             parts = parts[1:]
         # Auto-detect if privileges needed for raw commands
         return self._run_nmcli(parts)
+
+    def get_wifi_password(self, ssid: str) -> Optional[str]:
+        """Retrieve saved WiFi password for a given SSID (requires root)"""
+        res = self._run_nmcli(["-g", "wifi-sec.psk", "connection", "show", ssid], force_privileged=True)
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+        return None

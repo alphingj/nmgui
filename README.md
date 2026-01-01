@@ -24,6 +24,8 @@ A lightweight, zero-dependency graphical interface for **nmcli** that works on a
 - **Auto-privilege escalation**: Uses `pkexec` for privileged operations (no "sudo the entire app" needed)
 - **Full nmcli access**: All 150+ nmcli commands available via raw terminal tab
 - **Smart Wi-Fi**: Auto-detects secured networks and only prompts for password when needed
+- **Wi-Fi QR codes**: Generate QR codes for Android devices to easily connect to saved networks
+- **Show passwords**: View saved Wi-Fi passwords (with authentication)
 
 Made by **alphingj**
 
@@ -49,6 +51,8 @@ Made by **alphingj**
 - Scan available networks in real-time
 - See SSID, signal strength, security type, frequency
 - **Smart password prompt**: Automatically asks for password only if network requires authentication
+- **Generate QR codes**: Create shareable QR codes for Android devices to connect to saved networks
+- **Show saved passwords**: Retrieve and display passwords for saved networks (requires authentication)
 - Join networks with one click
 
 ### ⌨️ Raw nmcli Terminal
@@ -181,6 +185,8 @@ All heavy lifting is done by battle-tested NetworkManager. nmgui only:
   - Usually pre-installed; install.sh handles this
 - **polkit** (`pkexec`) for privilege escalation
   - Usually pre-installed; install.sh handles this
+- **Python packages** (installed automatically):
+  - `qrcode[pil]>=7.4` - For WiFi QR code generation
 
 **That's it.** No Qt, no 170MB wheels, no bloat.
 
@@ -216,6 +222,29 @@ When you click "Connect" on a Wi-Fi network:
    - nmgui creates a connection (or uses existing)
    - Activates it on the device
    - NetworkManager handles DHCP, DNS, etc.
+
+### Wi-Fi QR Code Generation
+
+Generate a QR code for easy sharing and Android connection:
+
+1. **Select a network** in the Wi-Fi tab
+2. **Click "Show QR Code"**
+3. **System prompts for authentication** (polkit)
+4. **A popup displays** the QR code that Android devices can scan to connect instantly
+5. **On Android**: Open WiFi settings → Tap "+" → Scan QR code → Auto-fills SSID & password
+
+**Format**: WiFi networks are encoded in standard WiFi QR format compatible with Android 10+
+
+### View Saved Passwords
+
+Retrieve stored WiFi passwords:
+
+1. **Select a network** in the Wi-Fi tab
+2. **Click "Show Password"**
+3. **System prompts for authentication** (polkit)
+4. **Password displays** in a secure dialog box
+
+**Note**: Only works for networks saved on the current device. Passwords are stored by NetworkManager.
 
 ### Raw nmcli Commands
 
