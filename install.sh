@@ -185,23 +185,16 @@ else
     python3 -m venv "$VENV_PATH"
     "$VENV_PATH/bin/pip" install -e . -q
     
-    # Create wrapper script in ~/.local/bin with absolute venv path
+    # Create wrapper script in ~/.local/bin with symlink reference
     mkdir -p "$HOME/.local/bin"
     cat > "$HOME/.local/bin/nmgui" << 'WRAPPER_EOF'
 #!/bin/bash
-# nmgui wrapper script - auto-activates venv
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NMGUI_ROOT="$(dirname "$SCRIPT_DIR")"
-VENV_PATH="$NMGUI_ROOT/.nmgui_venv"
+# nmgui wrapper script - uses symlink to find venv
+VENV_PATH="$HOME/.nmgui_venv"
 
-# Fallback: check if venv exists in common locations
-if [ ! -d "$VENV_PATH" ] && [ -d "$NMGUI_ROOT/nmgui/venv_nmgui" ]; then
-    VENV_PATH="$NMGUI_ROOT/nmgui/venv_nmgui"
-fi
-
-# Try to find venv by searching parent directories
+# Fallback: search for venv in common locations
 if [ ! -d "$VENV_PATH" ]; then
-    for dir in "$HOME" "$HOME/.local/opt" /opt /usr/local; do
+    for dir in "$HOME/nmgui" "$HOME/.local/share" /opt /usr/local; do
         if [ -f "$dir/venv_nmgui/bin/python" ] 2>/dev/null; then
             VENV_PATH="$dir/venv_nmgui"
             break
@@ -212,14 +205,14 @@ fi
 if [ -f "$VENV_PATH/bin/python" ]; then
     exec "$VENV_PATH/bin/python" -m nmgui "$@"
 else
-    echo "Error: nmgui venv not found"
+    echo "Error: nmgui venv not found at $VENV_PATH"
     echo "Please reinstall: bash install.sh"
     exit 1
 fi
 WRAPPER_EOF
     chmod +x "$HOME/.local/bin/nmgui"
     
-    # Store venv path for wrapper script
+    # Create symlink to venv in home directory for wrapper to find
     ln -sf "$VENV_PATH" "$HOME/.nmgui_venv" 2>/dev/null || true
     
     echo "✓ Created wrapper script at ~/.local/bin/nmgui"
