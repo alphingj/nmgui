@@ -110,9 +110,20 @@ fi
 # Install
 echo ""
 echo "📦 Installing nmgui..."
-python3 -m pip install --user . -q
+
+# Try standard user install first, fall back to venv
+if python3 -m pip install --user . -q 2>/dev/null; then
+    echo "✓ Installed to ~/.local/bin"
+    [ -d "$HOME/.local/bin" ] && ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:" && echo "⚠ Add to ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+else
+    echo "⚠ User install unavailable, using venv..."
+    python3 -m venv venv_nmgui
+    source venv_nmgui/bin/activate
+    pip install -e . -q
+    deactivate
+    echo "✓ Installed to ./venv_nmgui/bin/nmgui"
+    echo "Run: source venv_nmgui/bin/activate && nmgui"
+fi
 
 echo ""
-echo "✅ Done! Run: nmgui"
-echo ""
-[ -d "$HOME/.local/bin" ] && ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:" && echo "Add to ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+echo "✅ Installation complete!"

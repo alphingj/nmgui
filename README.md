@@ -90,10 +90,17 @@ curl -fsSL https://raw.githubusercontent.com/alphingj/nmgui/main/install.sh | ba
 git clone https://github.com/alphingj/nmgui.git
 cd nmgui
 
-# Install (user-local, no sudo)
+# Option 1: User-local install (preferred)
 pip install --user .
+nmgui
 
-# Or system-wide (requires sudo)
+# Option 2: Virtual environment (if Option 1 fails)
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+nmgui
+
+# Option 3: System-wide (requires sudo, not recommended)
 sudo pip install .
 ```
 
@@ -102,8 +109,8 @@ sudo pip install .
 ```bash
 git clone https://github.com/alphingj/nmgui.git
 cd nmgui
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
 nmgui
 ```
