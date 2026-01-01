@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nmgui"
-version = "1.0.2"
+version = "1.0.3"
 description = "A graphical companion for nmcli - manage NetworkManager from a lightweight GUI"
 readme = "README.md"
 authors = [{name = "alphingj"}]

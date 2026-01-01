@@ -180,29 +180,58 @@ if python3 -m pip install --user . -q 2>/dev/null; then
 else
     echo "⚠ User install unavailable, using venv..."
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    python3 -m venv "$SCRIPT_DIR/venv_nmgui"
-    source "$SCRIPT_DIR/venv_nmgui/bin/activate"
-    pip install -e . -q
-    deactivate
+    VENV_PATH="$SCRIPT_DIR/venv_nmgui"
     
-    # Create wrapper script in ~/.local/bin
+    python3 -m venv "$VENV_PATH"
+    "$VENV_PATH/bin/pip" install -e . -q
+    
+    # Create wrapper script in ~/.local/bin with absolute venv path
     mkdir -p "$HOME/.local/bin"
-    cat > "$HOME/.local/bin/nmgui" << 'EOF'
+    cat > "$HOME/.local/bin/nmgui" << 'WRAPPER_EOF'
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-VENV_DIR="$(dirname "$SCRIPT_DIR")"/.."
-[ ! -d "$VENV_DIR/nmgui/venv_nmgui" ] && VENV_DIR="."
-if [ -d "$VENV_DIR/nmgui/venv_nmgui" ]; then
-    source "$VENV_DIR/nmgui/venv_nmgui/bin/activate"
-    exec python -m nmgui "$@"
+# nmgui wrapper script - auto-activates venv
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NMGUI_ROOT="$(dirname "$SCRIPT_DIR")"
+VENV_PATH="$NMGUI_ROOT/.nmgui_venv"
+
+# Fallback: check if venv exists in common locations
+if [ ! -d "$VENV_PATH" ] && [ -d "$NMGUI_ROOT/nmgui/venv_nmgui" ]; then
+    VENV_PATH="$NMGUI_ROOT/nmgui/venv_nmgui"
+fi
+
+# Try to find venv by searching parent directories
+if [ ! -d "$VENV_PATH" ]; then
+    for dir in "$HOME" "$HOME/.local/opt" /opt /usr/local; do
+        if [ -f "$dir/venv_nmgui/bin/python" ] 2>/dev/null; then
+            VENV_PATH="$dir/venv_nmgui"
+            break
+        fi
+    done
+fi
+
+if [ -f "$VENV_PATH/bin/python" ]; then
+    exec "$VENV_PATH/bin/python" -m nmgui "$@"
 else
-    echo "Error: venv not found. Re-run install.sh from nmgui directory."
+    echo "Error: nmgui venv not found"
+    echo "Please reinstall: bash install.sh"
     exit 1
 fi
-EOF
+WRAPPER_EOF
     chmod +x "$HOME/.local/bin/nmgui"
+    
+    # Store venv path for wrapper script
+    ln -sf "$VENV_PATH" "$HOME/.nmgui_venv" 2>/dev/null || true
+    
     echo "✓ Created wrapper script at ~/.local/bin/nmgui"
-    [ ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:" ] && echo "⚠ Add to ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    
+    # Check if ~/.local/bin is in PATH
+    if ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:"; then
+        echo ""
+        echo "⚠ ~/.local/bin is not in PATH"
+        echo "  Add to ~/.bashrc:"
+        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo "  Then run: source ~/.bashrc"
+    fi
 fi
 
 echo ""
