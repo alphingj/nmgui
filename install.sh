@@ -179,12 +179,30 @@ if python3 -m pip install --user . -q 2>/dev/null; then
     [ -d "$HOME/.local/bin" ] && ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:" && echo "⚠ Add to ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
 else
     echo "⚠ User install unavailable, using venv..."
-    python3 -m venv venv_nmgui
-    source venv_nmgui/bin/activate
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    python3 -m venv "$SCRIPT_DIR/venv_nmgui"
+    source "$SCRIPT_DIR/venv_nmgui/bin/activate"
     pip install -e . -q
     deactivate
-    echo "✓ Installed to ./venv_nmgui/bin/nmgui"
-    echo "Run: source venv_nmgui/bin/activate && nmgui"
+    
+    # Create wrapper script in ~/.local/bin
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/nmgui" << 'EOF'
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+VENV_DIR="$(dirname "$SCRIPT_DIR")"/.."
+[ ! -d "$VENV_DIR/nmgui/venv_nmgui" ] && VENV_DIR="."
+if [ -d "$VENV_DIR/nmgui/venv_nmgui" ]; then
+    source "$VENV_DIR/nmgui/venv_nmgui/bin/activate"
+    exec python -m nmgui "$@"
+else
+    echo "Error: venv not found. Re-run install.sh from nmgui directory."
+    exit 1
+fi
+EOF
+    chmod +x "$HOME/.local/bin/nmgui"
+    echo "✓ Created wrapper script at ~/.local/bin/nmgui"
+    [ ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:" ] && echo "⚠ Add to ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
 fi
 
 echo ""
