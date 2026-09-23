@@ -33,6 +33,9 @@ venv/
 ENV/
 env/
 
+# Accidental nested checkout
+nmgui/
+
 # IDEs
 .vscode/
 .idea/

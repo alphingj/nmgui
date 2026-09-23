@@ -5,9 +5,9 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Linux-important)
-![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen)
+![Zero Python Dependencies](https://img.shields.io/badge/Python%20dependencies-Zero-brightgreen)
 
-A lightweight, zero-dependency graphical interface for **nmcli** that works on any Linux desktop.
+A lightweight graphical interface for **nmcli** that works on Linux desktops with Tkinter and NetworkManager installed.
 
 [Installation](#installation) • [Features](#features) • [Usage](#quick-start) • [Documentation](#documentation)
 
@@ -20,7 +20,7 @@ A lightweight, zero-dependency graphical interface for **nmcli** that works on a
 **nmgui** is a thin GUI layer over `nmcli` (NetworkManager CLI) that brings network management to your fingertips. Forget terminal commands—manage Wi-Fi, devices, and connections through a clean, intuitive interface.
 
 - **Works everywhere**: Same codebase on Ubuntu, Fedora, Arch, openSUSE, Alpine...
-- **Zero bloat**: Only Python stdlib (tkinter) + system nmcli binary
+- **Zero Python dependencies**: Uses Python stdlib plus system tools
 - **Auto-privilege escalation**: Uses `pkexec` for privileged operations (no "sudo the entire app" needed)
 - **Full nmcli access**: All 150+ nmcli commands available via raw terminal tab
 - **Smart Wi-Fi**: Auto-detects secured networks and only prompts for password when needed
@@ -71,15 +71,16 @@ Made by **alphingj**
 bash install.sh
 ```
 
-Or via curl:
+Or download a reviewed release/install script. Avoid piping an unreviewed remote script directly to a shell:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alphingj/nmgui/main/install.sh | bash
+curl -fsSLO https://raw.githubusercontent.com/alphingj/nmgui/main/install.sh
+bash install.sh
 ```
 
 **What it does:**
 - ✓ Checks Python 3.10+ (installs if needed)
 - ✓ Installs tkinter
-- ✓ Installs/updates NetworkManager + nmcli
+- ✓ Installs NetworkManager + nmcli only when missing
 - ✓ Installs polkit for privilege escalation
 - ✓ Installs nmgui to `~/.local/bin`
 
@@ -193,7 +194,7 @@ When you click "Connect" on a Wi-Fi network:
    - Shows network SSID and security method (WPA2, WPA3, etc.)
    - Password input hidden (masked with •)
    - Cancel anytime with Cancel button
-4. **Connection**: Runs `pkexec nmcli device wifi connect "SSID" password "PASSWORD"`
+4. **Connection**: Runs nmcli without putting the Wi-Fi password in command-line arguments
 5. **Authentication**: polkit prompts you for your user password (one-time per session)
 6. **Status**: Shows success/failure and automatically refreshes network status
 
@@ -289,9 +290,9 @@ source ~/.bashrc
 ### Cannot connect to Wi-Fi
 **Try the Raw nmcli tab:**
 ```
-device wifi connect "SSID" password "PASSWORD"
+device wifi connect "SSID"
 ```
-This shows the actual error from nmcli.
+This shows the actual error from nmcli. Do not enter passwords into the Raw tab because command output and shell history can expose them.
 
 ### Permission denied on connect
 Your user may not have NetworkManager permissions:
@@ -376,7 +377,7 @@ Compare to Qt/PyQt alternatives: 170MB+ for the same functionality.
 
 - **No network access**: nmgui is 100% local
 - **Privilege escalation**: Uses system polkit (desktop-standard)
-- **Credentials**: Never stored by nmgui (NetworkManager handles creds)
+- **Credentials**: Not persisted by nmgui; passwords are passed through standard input when connecting
 - **Open source**: Full code available for audit
 - **No telemetry**: Zero data collection
 
