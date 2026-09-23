@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional, Tuple
 
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
-from .models import CommandResult, Connection, Device, WifiNetwork
+from .models import CommandResult, Connection, Device, NmcliInfo, WifiNetwork
 from .nmcli import Nmcli
 
 
@@ -18,8 +17,12 @@ class App(tk.Tk):
         self.geometry("1024x640")
         self.nmcli = Nmcli()
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self._closing = False
+        self._refresh_generation = 0
+        self._futures = set()
         self._connections_cache = []
         self._devices_cache = []
+        self._info_cache = NmcliInfo(version=None, available=False)
 
         self.status_var = tk.StringVar(value="Ready")
 
@@ -49,15 +52,11 @@ class App(tk.Tk):
 
     # ----- shared helpers -------------------------------------------------
     def on_close(self) -> None:
-        try:
-            self.executor.shutdown(wait=False)
-        except Exception:
-            pass
-        try:
-            self.destroy()
-        except Exception:
-            import sys
-            sys.exit(0)
+        self._closing = True
+        for future in self._futures:
+            future.cancel()
+        self.executor.shutdown(wait=False, cancel_futures=True)
+        self.destroy()
 
     def run_task(self, fn: Callable, callback: Callable[[object, Optional[Exception]], None]) -> None:
         def wrapper() -> Tuple[object, Optional[Exception]]:
@@ -67,16 +66,18 @@ class App(tk.Tk):
                 return None, exc
 
         def on_done(fut):
+            self._futures.discard(fut)
+            if self._closing:
+                return
             try:
-                if self.winfo_exists():
-                    self.after(0, callback, *fut.result())
+                result = fut.result()
+                self.after(0, callback, *result)
             except Exception:
-                try:
-                    callback(*fut.result())
-                except Exception:
-                    pass
+                # The Tk interpreter may already be shutting down.
+                return
 
         future = self.executor.submit(wrapper)
+        self._futures.add(future)
         future.add_done_callback(on_done)
 
     def show_error(self, title: str, message: str) -> None:
@@ -97,9 +98,8 @@ class App(tk.Tk):
     def _update_dashboard(self, devices: list[Device], conns: list[Connection]) -> None:
         active = [c for c in conns if c.active]
         connected_devices = [d for d in devices if d.state.lower() == "connected"]
-        info = self.nmcli.info()
         lines = [
-            f"nmcli version: {info.version or 'unknown'}",
+            f"nmcli version: {self._info_cache.version or 'unknown'}",
             f"Connections: {len(conns)} (active: {len(active)})",
             f"Devices: {len(devices)} (connected: {len(connected_devices)})",
         ]
@@ -334,15 +334,29 @@ class App(tk.Tk):
 
     # ----- refresh actions ------------------------------------------------
     def refresh_all(self) -> None:
-        self.refresh_connections()
-        self.refresh_devices()
-        self.refresh_wifi()
+        self._refresh_generation += 1
+        generation = self._refresh_generation
+        self.refresh_connections(generation)
+        self.refresh_devices(generation)
+        self.refresh_wifi(generation)
+        self.run_task(self.nmcli.info, self._on_info_loaded)
 
-    def refresh_connections(self) -> None:
+    def refresh_connections(self, generation: Optional[int] = None) -> None:
+        generation = generation or self._refresh_generation
         self.set_status("Loading connections...")
-        self.run_task(self.nmcli.connection_list, self._on_connections_loaded)
+        self.run_task(
+            self.nmcli.connection_list,
+            lambda conns, err: self._on_connections_loaded(conns, err, generation),
+        )
 
-    def _on_connections_loaded(self, conns: Optional[list[Connection]], err: Optional[Exception]) -> None:
+    def _on_connections_loaded(
+        self,
+        conns: Optional[list[Connection]],
+        err: Optional[Exception],
+        generation: int,
+    ) -> None:
+        if generation != self._refresh_generation:
+            return
         if err:
             self.show_error("nmcli error", str(err))
             self.set_status("Error")
@@ -353,11 +367,22 @@ class App(tk.Tk):
         self._update_dashboard(self._devices_cache, conns)
         self.set_status("Ready")
 
-    def refresh_devices(self) -> None:
+    def refresh_devices(self, generation: Optional[int] = None) -> None:
+        generation = generation or self._refresh_generation
         self.set_status("Loading devices...")
-        self.run_task(self.nmcli.device_status, self._on_devices_loaded)
+        self.run_task(
+            self.nmcli.device_status,
+            lambda devices, err: self._on_devices_loaded(devices, err, generation),
+        )
 
-    def _on_devices_loaded(self, devices: Optional[list[Device]], err: Optional[Exception]) -> None:
+    def _on_devices_loaded(
+        self,
+        devices: Optional[list[Device]],
+        err: Optional[Exception],
+        generation: int,
+    ) -> None:
+        if generation != self._refresh_generation:
+            return
         if err:
             self.show_error("nmcli error", str(err))
             self.set_status("Error")
@@ -368,11 +393,22 @@ class App(tk.Tk):
         self._update_dashboard(devices, self._connections_cache)
         self.set_status("Ready")
 
-    def refresh_wifi(self) -> None:
+    def refresh_wifi(self, generation: Optional[int] = None) -> None:
+        generation = generation or self._refresh_generation
         self.set_status("Scanning Wi-Fi...")
-        self.run_task(self.nmcli.wifi_scan, self._on_wifi_loaded)
+        self.run_task(
+            self.nmcli.wifi_scan,
+            lambda nets, err: self._on_wifi_loaded(nets, err, generation),
+        )
 
-    def _on_wifi_loaded(self, nets: Optional[list[WifiNetwork]], err: Optional[Exception]) -> None:
+    def _on_wifi_loaded(
+        self,
+        nets: Optional[list[WifiNetwork]],
+        err: Optional[Exception],
+        generation: int,
+    ) -> None:
+        if generation != self._refresh_generation:
+            return
         if err:
             self.show_error("nmcli error", str(err))
             self.set_status("Error")
@@ -380,6 +416,12 @@ class App(tk.Tk):
         assert nets is not None
         self._populate_wifi(nets)
         self.set_status("Ready")
+
+    def _on_info_loaded(self, info: Optional[NmcliInfo], err: Optional[Exception]) -> None:
+        if err or info is None:
+            return
+        self._info_cache = info
+        self._update_dashboard(self._devices_cache, self._connections_cache)
 
     # ----- generic command result ----------------------------------------
     def _handle_command_result(self, result: Optional[CommandResult], err: Optional[Exception]) -> None:
