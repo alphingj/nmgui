@@ -28,6 +28,7 @@ install_package() {
         pacman) sudo pacman -S --noconfirm "$pkg" ;;
         zypper) sudo zypper install -y "$pkg" ;;
         apk) sudo apk add "$pkg" ;;
+        *) echo "Cannot install $pkg: unsupported package manager" >&2; return 1 ;;
     esac
 }
 
@@ -59,7 +60,7 @@ if ! python3 -c "import tkinter" 2>/dev/null; then
 fi
 python3 -c "import tkinter" 2>/dev/null && echo "✓ tkinter" || echo "⚠ tkinter install failed"
 
-# Install/upgrade NetworkManager
+# Install NetworkManager only when missing; installation must not upgrade it.
 echo "📦 NetworkManager..."
 if ! command -v nmcli &> /dev/null; then
     case "$PKG_MGR" in
@@ -70,17 +71,13 @@ if ! command -v nmcli &> /dev/null; then
         zypper) sudo zypper install -y NetworkManager ;;
         apk) sudo apk add networkmanager ;;
     esac
-else
-    case "$PKG_MGR" in
-        apt) sudo apt-get update -qq && sudo apt-get upgrade -y network-manager ;;
-        dnf) sudo dnf upgrade -y NetworkManager ;;
-        yum) sudo yum upgrade -y NetworkManager ;;
-        pacman) sudo pacman -S --noconfirm networkmanager ;;
-        zypper) sudo zypper update -y NetworkManager ;;
-        apk) sudo apk upgrade networkmanager ;;
-    esac
 fi
-command -v nmcli &> /dev/null && echo "✓ $(nmcli --version | head -1)" || echo "⚠ nmcli not found"
+if command -v nmcli &> /dev/null; then
+    echo "✓ $(nmcli --version | head -1)"
+else
+    echo "❌ nmcli not found after installation" >&2
+    exit 1
+fi
 
 # Install polkit
 echo "📦 Polkit..."
@@ -110,7 +107,18 @@ fi
 # Install
 echo ""
 echo "📦 Installing nmgui..."
-python3 -m pip install --user . -q
+if ! python3 -m pip install --user . -q; then
+    echo "⚠ User-site installation unavailable; using an isolated virtual environment"
+    VENV_PATH="${XDG_DATA_HOME:-$HOME/.local/share}/nmgui/venv"
+    python3 -m venv "$VENV_PATH"
+    "$VENV_PATH/bin/python" -m pip install . -q
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/nmgui" <<EOF
+#!/usr/bin/env bash
+exec "$VENV_PATH/bin/python" -m nmgui "\$@"
+EOF
+    chmod +x "$HOME/.local/bin/nmgui"
+fi
 
 echo ""
 echo "✅ Done! Run: nmgui"
