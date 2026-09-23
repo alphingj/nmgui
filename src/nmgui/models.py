@@ -51,6 +51,13 @@ class CommandResult:
         return self.stderr.strip() or "(no error output)"
 
 
+class NmcliError(RuntimeError):
+    def __init__(self, operation: str, result: CommandResult) -> None:
+        message = result.stderr.strip() or result.stdout.strip() or "command failed"
+        super().__init__(f"{operation} failed ({result.returncode}): {message}")
+        self.result = result
+
+
 @dataclass
 class NmcliInfo:
     version: Optional[str]

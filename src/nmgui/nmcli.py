@@ -3,9 +3,10 @@ from __future__ import annotations
 import shlex
 import shutil
 import subprocess
+import os
 from typing import Iterable, List, Optional
 
-from .models import CommandResult, Connection, Device, NmcliInfo, WifiNetwork
+from .models import CommandResult, Connection, Device, NmcliError, NmcliInfo, WifiNetwork
 
 
 def _split_t_fields(line: str, expected: int) -> List[str]:
@@ -24,10 +25,11 @@ def _split_t_fields(line: str, expected: int) -> List[str]:
             current = []
         else:
             current.append(ch)
+    if escaped:
+        current.append("\\")
     parts.append("".join(current))
-    # pad to expected length
-    while len(parts) < expected:
-        parts.append("")
+    if len(parts) != expected:
+        raise ValueError(f"expected {expected} fields, got {len(parts)}")
     return parts
 
 
@@ -96,11 +98,12 @@ class Nmcli:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                start_new_session=True,
             )
             stdout, stderr = proc.communicate(input=input_text, timeout=timeout)
             return CommandResult(command=cmd, stdout=stdout, stderr=stderr, returncode=proc.returncode)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            os.killpg(proc.pid, 9)
             stdout, stderr = proc.communicate()
             return CommandResult(command=cmd, stdout=stdout or "", stderr=stderr or "Command timed out", returncode=-1)
 
@@ -108,10 +111,13 @@ class Nmcli:
         res = self._run_nmcli(["-t", "-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show"])
         conns: List[Connection] = []
         if res.returncode != 0:
-            return conns
+            raise NmcliError("listing connections", res)
         for line in res.stdout.splitlines():
-            fields = _split_t_fields(line, 5)
-            if len(fields) >= 5:
+            try:
+                fields = _split_t_fields(line, 5)
+            except ValueError:
+                continue
+            if len(fields) == 5:
                 conns.append(Connection(name=fields[0], uuid=fields[1], type=fields[2], device=fields[3], active=fields[4].lower() == "yes"))
         return conns
 
@@ -119,10 +125,13 @@ class Nmcli:
         res = self._run_nmcli(["-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"])
         devices: List[Device] = []
         if res.returncode != 0:
-            return devices
+            raise NmcliError("listing devices", res)
         for line in res.stdout.splitlines():
-            fields = _split_t_fields(line, 4)
-            if len(fields) >= 4:
+            try:
+                fields = _split_t_fields(line, 4)
+            except ValueError:
+                continue
+            if len(fields) == 4:
                 devices.append(Device(device=fields[0], type=fields[1], state=fields[2], connection=fields[3]))
         return devices
 
@@ -137,10 +146,13 @@ class Nmcli:
         ])
         networks: List[WifiNetwork] = []
         if res.returncode != 0:
-            return networks
+            raise NmcliError("scanning Wi-Fi", res)
         for line in res.stdout.splitlines():
-            fields = _split_t_fields(line, 8)
-            if len(fields) >= 8:
+            try:
+                fields = _split_t_fields(line, 8)
+            except ValueError:
+                continue
+            if len(fields) == 8:
                 networks.append(
                     WifiNetwork(
                         in_use=fields[0] == "*",
