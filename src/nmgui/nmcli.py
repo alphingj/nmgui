@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shlex
 import shutil
 import subprocess
@@ -53,20 +52,30 @@ class Nmcli:
     def info(self) -> NmcliInfo:
         if not self._nmcli_path:
             return NmcliInfo(version=None, available=False)
-        proc = subprocess.run([self._nmcli_path, "-g", "version", "general"],
-                              text=True, capture_output=True, check=False)
+        proc = subprocess.run(
+            [self._nmcli_path, "-g", "version", "general"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
         version = proc.stdout.strip() if proc.returncode == 0 else None
         return NmcliInfo(version=version, available=True)
 
     def _needs_privileges(self, args: List[str]) -> bool:
-        """Check if command needs elevated privileges"""
-        if len(args) < 2:
-            return False
-        # Check first two args against privileged command list
-        cmd_prefix = " ".join(args[:2])
-        return any(cmd_prefix.startswith(priv_cmd) for priv_cmd in self._privileged_commands)
+        """Check whether args start with a state-changing command."""
+        return any(
+            args[: len(prefix)] == prefix
+            for prefix in (command.split() for command in self._privileged_commands)
+        )
 
-    def _run_nmcli(self, args: Iterable[str], timeout: int = 20, force_privileged: bool = False) -> CommandResult:
+    def _run_nmcli(
+        self,
+        args: Iterable[str],
+        timeout: int = 20,
+        force_privileged: bool = False,
+        input_text: Optional[str] = None,
+    ) -> CommandResult:
         if not self._nmcli_path:
             raise RuntimeError("nmcli not found on PATH")
         
@@ -75,13 +84,25 @@ class Nmcli:
         
         # Try with pkexec if command needs privileges
         if force_privileged or self._needs_privileges(args_list):
-            if self._pkexec_path and os.environ.get("DISPLAY"):
-                # Use pkexec for GUI privilege escalation
+            if self._pkexec_path:
                 cmd = [self._pkexec_path, self._nmcli_path, *args_list]
             # Otherwise try without pkexec and let nmcli handle it
         
-        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout, check=False)
-        return CommandResult(command=cmd, stdout=proc.stdout, stderr=proc.stderr, returncode=proc.returncode)
+        # Use Popen instead of run() to allow GUI dialogs to work while capturing output
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout, stderr = proc.communicate(input=input_text, timeout=timeout)
+            return CommandResult(command=cmd, stdout=stdout, stderr=stderr, returncode=proc.returncode)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            return CommandResult(command=cmd, stdout=stdout or "", stderr=stderr or "Command timed out", returncode=-1)
 
     def connection_list(self) -> List[Connection]:
         res = self._run_nmcli(["-t", "-f", "NAME,UUID,TYPE,DEVICE,ACTIVE", "connection", "show"])
@@ -136,11 +157,14 @@ class Nmcli:
 
     def wifi_connect(self, ssid: str, password: Optional[str] = None, iface: Optional[str] = None) -> CommandResult:
         args: List[str] = ["device", "wifi", "connect", ssid]
+        password_input = None
         if password:
-            args.extend(["password", password])
+            # Keep the secret out of argv and process listings.
+            args.append("--ask")
+            password_input = password + "\n"
         if iface:
             args.extend(["ifname", iface])
-        return self._run_nmcli(args, force_privileged=True)
+        return self._run_nmcli(args, force_privileged=True, input_text=password_input)
 
     def device_disconnect(self, device: str) -> CommandResult:
         return self._run_nmcli(["device", "disconnect", device], force_privileged=True)

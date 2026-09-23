@@ -49,8 +49,15 @@ class App(tk.Tk):
 
     # ----- shared helpers -------------------------------------------------
     def on_close(self) -> None:
-        self.executor.shutdown(wait=False)
-        self.destroy()
+        try:
+            self.executor.shutdown(wait=False)
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            import sys
+            sys.exit(0)
 
     def run_task(self, fn: Callable, callback: Callable[[object, Optional[Exception]], None]) -> None:
         def wrapper() -> Tuple[object, Optional[Exception]]:
@@ -59,8 +66,18 @@ class App(tk.Tk):
             except Exception as exc:
                 return None, exc
 
+        def on_done(fut):
+            try:
+                if self.winfo_exists():
+                    self.after(0, callback, *fut.result())
+            except Exception:
+                try:
+                    callback(*fut.result())
+                except Exception:
+                    pass
+
         future = self.executor.submit(wrapper)
-        future.add_done_callback(lambda fut: self.after(0, callback, *fut.result()))
+        future.add_done_callback(on_done)
 
     def show_error(self, title: str, message: str) -> None:
         messagebox.showerror(title, message, parent=self)
@@ -199,7 +216,7 @@ class App(tk.Tk):
         self.wifi_refresh_btn = ttk.Button(toolbar, text="Scan", command=self.refresh_wifi)
         self.wifi_connect_btn = ttk.Button(toolbar, text="Connect", command=self._wifi_connect)
         self.wifi_refresh_btn.pack(side=tk.LEFT, padx=(0, 6))
-        self.wifi_connect_btn.pack(side=tk.LEFT)
+        self.wifi_connect_btn.pack(side=tk.LEFT, padx=(0, 6))
         toolbar.pack(fill=tk.X, pady=(0, 6))
 
         columns = ("in_use", "ssid", "signal", "security", "mode", "freq", "channel")
@@ -258,7 +275,6 @@ class App(tk.Tk):
         self.set_status(f"Connecting to {net.ssid}...")
         self.run_task(lambda: self.nmcli.wifi_connect(net.ssid, password=password), self._handle_command_result)
 
-    # ----- raw nmcli tab --------------------------------------------------
     def _build_raw_tab(self, parent: tk.Widget) -> tk.Frame:
         frame = ttk.Frame(parent, padding=8)
         form = ttk.Frame(frame)
@@ -291,7 +307,7 @@ class App(tk.Tk):
             self.set_status("Error")
             return
         assert result is not None
-        output = ["$ " + " ".join(result.command), ""]
+        output = ["$ " + self._display_command(result.command), ""]
         if result.stdout:
             output.append(result.stdout)
         if result.stderr:
@@ -301,6 +317,20 @@ class App(tk.Tk):
         self.raw_output.insert("1.0", "\n".join(output))
         self.set_status("Done")
         self.refresh_all()
+
+    @staticmethod
+    def _display_command(command: list[str]) -> str:
+        """Render commands without exposing values supplied to password options."""
+        redacted = []
+        redact_next = False
+        for part in command:
+            if redact_next:
+                redacted.append("<redacted>")
+                redact_next = False
+            else:
+                redacted.append(part)
+                redact_next = part in {"password", "passwd", "802-1x.password"}
+        return " ".join(redacted)
 
     # ----- refresh actions ------------------------------------------------
     def refresh_all(self) -> None:
